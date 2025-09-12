@@ -46,3 +46,45 @@ This project implements a fully functional SQL database system designed for an A
 - **Database Tuning**: Recommendations for improved performance.
 
 ## Project Structure
+
+- **`airbnb_database_schema.sql`**: Contains the database schema with all tables, relationships, and constraints.
+- **`complex_queries.sql`**: Includes advanced analytical queries for business intelligence, data validation, and performance optimization.
+- **`sample_data.sql`**: Populates the database with realistic sample data for testing and demonstration.
+- **`development_summary.md`**: Documents the development process, key features, and technical achievements.
+
+## How to Use
+1. **Set Up the Database**:
+   - Create a database named `airbnb_data_mart`.
+   - Run `airbnb_database_schema.sql` to create the schema.
+
+2. **Populate the Database**:
+   - Run `sample_data.sql` to insert sample data.
+
+3. **Run Analytical Queries**:
+   - Use `complex_queries.sql` to execute advanced queries for insights and analysis.
+
+4. **Review Documentation**:
+   - Refer to `development_summary.md` for detailed explanations of the schema, queries, and features.
+
+## Technical Highlights
+- **Advanced SQL Features**:
+  - Common Table Expressions (CTEs)
+  - Window Functions
+  - Recursive Queries
+  - Aggregate Functions
+- **Performance Optimization**:
+  - Strategic indexing
+  - Query tuning
+  - Execution plan analysis
+- **Data Integrity**:
+  - Comprehensive constraints
+  - Referential integrity validation
+
+## Future Enhancements
+- **Machine Learning Integration**: Predictive modeling for advanced analytics.
+- **Real-time Streaming**: Live data processing capabilities.
+- **Interactive Dashboards**: Visualization of key metrics.
+- **API Integration**: Connectivity with external systems.
+
+## Conclusion
+This project demonstrates the implementation of a robust SQL database system with advanced analytical capabilities, data integrity validation, and performance optimization. It provides a solid foundation for managing and analyzing data in an Airbnb-like platform.
