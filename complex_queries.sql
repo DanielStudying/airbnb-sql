@@ -1,39 +1,189 @@
--- =====================================================
--- 1. TRIPLE RELATIONSHIP QUERIES (Join over three tables)
--- =====================================================
+-- Complex SQL Queries for Airbnb Data Mart
+-- Demonstrates triple relationships, recursive queries, and business logic
 
--- Query 1: Guest Booking Analysis with Host and Property Details
--- This query demonstrates a triple relationship between guests, properties, and hosts
--- Shows guest booking patterns, property types, and host performance
+
+-- Triple relationship 1: User-Property-Amenity preferences
+-- Tracks which amenities specific users value for properties they view
 SELECT 
-    g.user_id,
+    u.user_id,
+    u.email,
     up.first_name,
     up.last_name,
-    up.guest_since,
-    COUNT(b.booking_id) as total_bookings,
-    AVG(b.total_price) as avg_booking_value,
+    p.property_id,
+    p.title as property_name,
     p.property_type,
-    p.title as property_title,
-    hp.host_since,
-    hp.superhost_status,
-    hp.response_rate,
-    c.city_name,
-    n.neighborhood_name
-FROM guest_profiles g
-JOIN user_profiles up ON g.user_id = up.user_id
-JOIN bookings b ON g.user_id = b.guest_id
-JOIN properties p ON b.property_id = p.property_id
-JOIN host_profiles hp ON p.host_id = hp.user_id
-JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-JOIN cities c ON n.city_id = c.city_id
-WHERE b.booking_status = 'completed'
-GROUP BY g.user_id, up.first_name, up.last_name, up.guest_since, p.property_type, 
-         p.title, hp.host_since, hp.superhost_status, hp.response_rate, c.city_name, n.neighborhood_name
-ORDER BY total_bookings DESC, avg_booking_value DESC;
+    a.amenity_id,
+    a.amenity_name,
+    a.category as amenity_category,
+    upap.importance_score,
+    upap.last_viewed,
+    COUNT(*) OVER (PARTITION BY u.user_id) as total_preferences_by_user
+FROM user_property_amenity_preferences upap
+JOIN users u ON upap.user_id = u.user_id
+JOIN user_profiles up ON u.user_id = up.user_id
+JOIN properties p ON upap.property_id = p.property_id
+JOIN amenities a ON upap.amenity_id = a.amenity_id
+WHERE upap.importance_score >= 4
+ORDER BY u.user_id, upap.importance_score DESC, upap.last_viewed DESC;
 
--- Query 2: Property Performance Analysis with Amenities and Reviews
--- Triple relationship: Properties, Amenities, and Reviews
--- Analyzes property performance based on amenities and guest satisfaction
+-- Triple relationship 2: Booking-Review-Response
+-- Shows review conversations between guests and hosts
+SELECT 
+    b.booking_id,
+    b.property_id,
+    b.check_in_date,
+    b.check_out_date,
+    b.total_price,
+    r.review_id,
+    r.overall_rating,
+    r.public_review,
+    guest_profile.first_name as guest_name,
+    host_profile.first_name as host_name,
+    brr.response_text,
+    brr.is_public,
+    brr.created_at as response_date,
+    DATEDIFF(brr.created_at, r.created_at) as days_to_respond
+FROM booking_review_responses brr
+JOIN bookings b ON brr.booking_id = b.booking_id
+JOIN reviews r ON brr.review_id = r.review_id
+JOIN users guest ON b.guest_id = guest.user_id
+JOIN user_profiles guest_profile ON guest.user_id = guest_profile.user_id
+JOIN properties p ON b.property_id = p.property_id
+JOIN users host ON p.host_id = host.user_id
+JOIN user_profiles host_profile ON host.user_id = host_profile.user_id
+WHERE r.overall_rating <= 3  -- Focus on issues
+ORDER BY b.check_in_date DESC, brr.created_at;
+
+-- Triple relationship 3: Property-Booking-Discount
+-- Analyzes discount usage across properties and bookings
+SELECT 
+    p.property_id,
+    p.title,
+    p.property_type,
+    p.base_price_per_night,
+    b.booking_id,
+    b.check_in_date,
+    b.total_price as booking_total,
+    pc.code as promo_code,
+    pc.discount_type,
+    pc.discount_value,
+    pbd.discount_amount,
+    (b.total_price + pbd.discount_amount) as original_price_before_discount,
+    ROUND((pbd.discount_amount / (b.total_price + pbd.discount_amount) * 100), 2) as discount_percentage
+FROM property_booking_discounts pbd
+JOIN properties p ON pbd.property_id = p.property_id
+JOIN bookings b ON pbd.booking_id = b.booking_id
+JOIN promo_codes pc ON pbd.promo_id = pc.promo_id
+WHERE b.status IN ('completed', 'paid')
+ORDER BY pbd.applied_at DESC;
+
+-- ===========================================
+-- RECURSIVE RELATIONSHIP QUERY
+-- ===========================================
+
+-- Recursive referral network analysis
+-- Shows multi-level referral chains
+WITH RECURSIVE referral_chain AS (
+    -- Base: direct referrals
+    SELECT 
+        ur.referrer_user_id,
+        ur.referred_user_id,
+        ur.referral_code,
+        ur.referral_bonus,
+        ur.status,
+        1 as referral_level,
+        CAST(ur.referrer_user_id AS CHAR(500)) as referral_path
+    FROM user_referrals ur
+    WHERE ur.status = 'completed'
+    
+    UNION ALL
+    
+    -- Recursive: multi-level referrals
+    SELECT 
+        rc.referrer_user_id,
+        ur.referred_user_id,
+        ur.referral_code,
+        ur.referral_bonus,
+        ur.status,
+        rc.referral_level + 1,
+        CONCAT(rc.referral_path, ' -> ', ur.referred_user_id)
+    FROM referral_chain rc
+    JOIN user_referrals ur ON rc.referred_user_id = ur.referrer_user_id
+    WHERE ur.status = 'completed'
+        AND rc.referral_level < 5
+)
+SELECT 
+    rc.referrer_user_id,
+    up.first_name as referrer_name,
+    rc.referral_level,
+    COUNT(DISTINCT rc.referred_user_id) as referrals_at_level,
+    SUM(rc.referral_bonus) as total_bonus_at_level,
+    GROUP_CONCAT(rc.referred_user_id) as referred_users
+FROM referral_chain rc
+JOIN user_profiles up ON rc.referrer_user_id = up.user_id
+GROUP BY rc.referrer_user_id, up.first_name, rc.referral_level
+ORDER BY rc.referrer_user_id, rc.referral_level;
+
+-- ===========================================
+-- COMPLEX BUSINESS QUERIES
+-- ===========================================
+
+-- Commission and revenue analysis by location
+-- Shows platform earnings from both guest and host fees
+SELECT 
+    c.country_name,
+    c.currency_code,
+    ci.city_name,
+    n.neighborhood_name,
+    COUNT(DISTINCT p.property_id) as total_properties,
+    COUNT(DISTINCT b.booking_id) as total_bookings,
+    SUM(b.total_price) as gross_booking_value,
+    SUM(b.airbnb_service_fee) as total_guest_fees,  -- 6-12%
+    SUM(b.host_service_fee) as total_host_fees,     -- 3%
+    SUM(b.airbnb_service_fee + b.host_service_fee) as total_platform_revenue,
+    ROUND(AVG(b.airbnb_service_fee / b.total_price * 100), 2) as avg_guest_fee_percent,
+    ROUND(AVG(b.host_service_fee / b.total_price * 100), 2) as avg_host_fee_percent
+FROM countries c
+JOIN cities ci ON c.country_id = ci.country_id
+JOIN neighborhoods n ON ci.city_id = n.city_id
+JOIN properties p ON n.neighborhood_id = p.neighborhood_id
+JOIN bookings b ON p.property_id = b.property_id
+WHERE b.status IN ('completed', 'paid')
+    AND b.check_in_date >= DATE_SUB(CURRENT_DATE, INTERVAL 1 YEAR)
+GROUP BY c.country_name, c.currency_code, ci.city_name, n.neighborhood_name
+ORDER BY total_platform_revenue DESC;
+
+-- Host payout verification (24-hour rule)
+-- Ensures payouts are scheduled correctly after guest check-in
+SELECT 
+    hp.host_profile_id,
+    u.email as host_email,
+    up.first_name,
+    up.last_name,
+    hp.bank_account,
+    b.booking_id,
+    b.check_in_date,
+    b.total_price,
+    b.host_service_fee,
+    hpo.amount as payout_amount,
+    hpo.scheduled_date,
+    hpo.status,
+    DATEDIFF(hpo.scheduled_date, b.check_in_date) as days_after_checkin,
+    CASE 
+        WHEN DATEDIFF(hpo.scheduled_date, b.check_in_date) = 1 THEN 'Correct'
+        WHEN DATEDIFF(hpo.scheduled_date, b.check_in_date) < 1 THEN 'Too Early'
+        ELSE 'Delayed'
+    END as payout_timing
+FROM host_payouts hpo
+JOIN bookings b ON hpo.booking_id = b.booking_id
+JOIN host_profiles hp ON hpo.host_id = hp.user_id
+JOIN users u ON hp.user_id = u.user_id
+JOIN user_profiles up ON u.user_id = up.user_id
+WHERE b.status = 'completed'
+ORDER BY b.check_in_date DESC;
+
+-- Property performance with amenity correlation
+-- Identifies which amenities drive better reviews and revenue
 SELECT 
     p.property_id,
     p.title,
@@ -41,634 +191,313 @@ SELECT
     p.max_guests,
     p.bedrooms,
     p.bathrooms,
+    p.base_price_per_night,
     COUNT(DISTINCT pam.amenity_id) as total_amenities,
-    SUM(CASE WHEN pa.amenity_category = 'luxury' THEN 1 ELSE 0 END) as luxury_amenities,
-    SUM(CASE WHEN pa.amenity_category = 'basic' THEN 1 ELSE 0 END) as basic_amenities,
-    AVG(r.rating) as avg_rating,
-    AVG(r.cleanliness_rating) as avg_cleanliness,
-    AVG(r.value_rating) as avg_value,
-    COUNT(r.review_id) as total_reviews,
-    c.city_name,
-    n.neighborhood_name,
-    n.average_rating as neighborhood_rating
+    COUNT(DISTINCT CASE WHEN a.category = 'safety' THEN a.amenity_id END) as safety_amenities,
+    COUNT(DISTINCT CASE WHEN a.category = 'outdoor' THEN a.amenity_id END) as outdoor_amenities,
+    COUNT(DISTINCT b.booking_id) as total_bookings,
+    SUM(b.total_price) as total_revenue,
+    AVG(CAST(r.overall_rating AS DECIMAL(3,2))) as avg_rating,
+    AVG(CAST(r.cleanliness_rating AS DECIMAL(3,2))) as avg_cleanliness,
+    AVG(CAST(r.value_rating AS DECIMAL(3,2))) as avg_value
 FROM properties p
-JOIN property_amenity_mapping pam ON p.property_id = pam.property_id
-JOIN property_amenities pa ON pam.amenity_id = pa.amenity_id
-JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-JOIN cities c ON n.city_id = c.city_id
-LEFT JOIN bookings b ON p.property_id = b.property_id
+LEFT JOIN property_amenities_map pam ON p.property_id = pam.property_id
+LEFT JOIN amenities a ON pam.amenity_id = a.amenity_id
+LEFT JOIN bookings b ON p.property_id = b.property_id AND b.status = 'completed'
 LEFT JOIN reviews r ON b.booking_id = r.booking_id
-WHERE pam.is_available = TRUE
-GROUP BY p.property_id, p.title, p.property_type, p.max_guests, p.bedrooms, p.bathrooms,
-         c.city_name, n.neighborhood_name, n.average_rating
-HAVING COUNT(r.review_id) >= 1
-ORDER BY avg_rating DESC, total_amenities DESC;
+WHERE p.status = 'active'
+GROUP BY p.property_id, p.title, p.property_type, p.max_guests, 
+         p.bedrooms, p.bathrooms, p.base_price_per_night
+HAVING COUNT(DISTINCT b.booking_id) >= 5
+ORDER BY total_revenue DESC;
 
--- Query 3: Financial Analysis with Bookings, Payments, and Commission
--- Triple relationship: Bookings, Payments, and Platform Revenue
--- Analyzes financial performance and commission structure
+-- Social media impact on user activity
+-- Analyzes Facebook integration effect on bookings
 SELECT 
-    c.city_name,
-    c.country_code,
-    COUNT(b.booking_id) as total_bookings,
-    SUM(b.total_price) as total_revenue,
-    AVG(b.total_price) as avg_booking_value,
-    SUM(p.amount) as total_payments_received,
-    SUM(p.commission_amount) as total_commission,
-    ROUND((SUM(p.commission_amount) / SUM(p.amount)) * 100, 2) as commission_percentage,
-    COUNT(DISTINCT b.guest_id) as unique_guests,
-    COUNT(DISTINCT p.property_id) as unique_properties,
-    ROUND(AVG(p.amount), 2) as avg_payment_amount
-FROM cities c
-JOIN neighborhoods n ON c.city_id = n.city_id
-JOIN properties p ON n.neighborhood_id = p.neighborhood_id
-JOIN bookings b ON p.property_id = b.property_id
-JOIN payments py ON b.booking_id = py.booking_id
-WHERE py.payment_status = 'completed'
-GROUP BY c.city_name, c.country_code
-ORDER BY total_revenue DESC, total_commission DESC;
+    u.user_id,
+    u.email,
+    u.user_type,
+    up.first_name,
+    up.last_name,
+    sc.platform,
+    sc.connected_at,
+    COUNT(DISTINCT CASE WHEN b.created_at > sc.connected_at THEN b.booking_id END) as bookings_after_social,
+    COUNT(DISTINCT CASE WHEN b.created_at <= sc.connected_at THEN b.booking_id END) as bookings_before_social,
+    AVG(CASE WHEN b.created_at > sc.connected_at THEN b.total_price END) as avg_spend_after,
+    AVG(CASE WHEN b.created_at <= sc.connected_at THEN b.total_price END) as avg_spend_before
+FROM social_connections sc
+JOIN users u ON sc.user_id = u.user_id
+JOIN user_profiles up ON u.user_id = up.user_id
+LEFT JOIN bookings b ON u.user_id = b.guest_id
+WHERE sc.platform = 'facebook'
+GROUP BY u.user_id, u.email, u.user_type, up.first_name, up.last_name, sc.platform, sc.connected_at
+HAVING COUNT(DISTINCT b.booking_id) > 0
+ORDER BY bookings_after_social DESC;
 
--- =====================================================
--- 2. RECURSIVE RELATIONSHIP QUERIES
--- =====================================================
-
--- Query 4: Service Provider Network Analysis
--- Demonstrates recursive relationships in service provider networks
--- Note: This uses Common Table Expression (CTE) syntax that works in most modern databases
-WITH RECURSIVE service_network AS (
-    -- Base case: direct service providers
+-- Guest lifetime value analysis
+-- Calculates total spend and loyalty metrics (fixed: removed total_spent reference)
+WITH guest_metrics AS (
     SELECT 
-        sp.service_provider_id,
-        sp.user_id,
-        sp.service_type,
-        sp.company_name,
-        0 as network_level,
-        sp.service_provider_id as network_path
-    FROM service_providers sp
-    
-    UNION ALL
-    
-    -- Recursive case: connected service providers
-    SELECT 
-        sp2.service_provider_id,
-        sp2.user_id,
-        sp2.service_type,
-        sp2.company_name,
-        sn.network_level + 1,
-        CONCAT(sn.network_path, ',', sp2.service_provider_id) as network_path
-    FROM service_network sn
-    JOIN service_providers sp2 ON sp2.service_type = sn.service_type
-    WHERE sp2.service_provider_id != sn.service_provider_id
-    AND sn.network_level < 3
-)
-SELECT 
-    network_level,
-    service_type,
-    COUNT(*) as provider_count,
-    AVG(rating) as avg_rating,
-    GROUP_CONCAT(DISTINCT company_name SEPARATOR ', ') as companies
-FROM service_network sn
-JOIN service_providers sp ON sn.service_provider_id = sp.service_provider_id
-GROUP BY network_level, service_type
-ORDER BY network_level, service_type;
-
--- =====================================================
--- 3. ADVANCED ANALYTICAL QUERIES
--- =====================================================
-
--- Query 5: Seasonal Booking Pattern Analysis
--- Analyzes booking patterns across different seasons and locations
-SELECT 
-    c.city_name,
-    c.country_code,
-    MONTH(b.check_in_date) as month,
-    CASE 
-        WHEN MONTH(b.check_in_date) IN (12, 1, 2) THEN 'Winter'
-        WHEN MONTH(b.check_in_date) IN (3, 4, 5) THEN 'Spring'
-        WHEN MONTH(b.check_in_date) IN (6, 7, 8) THEN 'Summer'
-        WHEN MONTH(b.check_in_date) IN (9, 10, 11) THEN 'Fall'
-    END as season,
-    COUNT(b.booking_id) as booking_count,
-    AVG(b.total_price) as avg_price,
-    SUM(b.total_price) as total_revenue,
-    COUNT(DISTINCT b.guest_id) as unique_guests,
-    ROUND(AVG(r.rating), 2) as avg_guest_rating
-FROM cities c
-JOIN neighborhoods n ON c.city_id = n.city_id
-JOIN properties p ON n.neighborhood_id = p.neighborhood_id
-JOIN bookings b ON p.property_id = b.property_id
-LEFT JOIN reviews r ON b.booking_id = r.booking_id
-WHERE b.booking_status IN ('completed', 'confirmed')
-    AND b.check_in_date >= '2024-01-01'
-GROUP BY c.city_name, c.country_code, MONTH(b.check_in_date)
-ORDER BY c.city_name, month;
-
--- Query 6: Host Performance Ranking with Multiple Metrics
--- Comprehensive host ranking system using multiple performance indicators
-WITH host_metrics AS (
-    SELECT 
-        hp.user_id,
+        gp.user_id,
         up.first_name,
         up.last_name,
-        hp.host_since,
-        hp.response_rate,
-        hp.response_time,
-        hp.superhost_status,
-        hp.verification_level,
-        COUNT(DISTINCT p.property_id) as total_properties,
-        COUNT(b.booking_id) as total_bookings,
-        SUM(b.total_price) as total_revenue,
+        gp.guest_since,
+        gp.loyalty_tier,
+        COUNT(DISTINCT b.booking_id) as total_bookings,
+        SUM(b.total_price) as lifetime_value,
         AVG(b.total_price) as avg_booking_value,
-        AVG(r.rating) as avg_guest_rating,
-        COUNT(r.review_id) as total_reviews,
-        COUNT(DISTINCT b.guest_id) as unique_guests,
-        ROUND(AVG(r.cleanliness_rating), 2) as avg_cleanliness,
-        ROUND(AVG(r.communication_rating), 2) as avg_communication,
-        ROUND(AVG(r.location_rating), 2) as avg_location,
-        ROUND(AVG(r.value_rating), 2) as avg_value
-    FROM host_profiles hp
-    JOIN user_profiles up ON hp.user_id = up.user_id
-    LEFT JOIN properties p ON hp.user_id = p.host_id
-    LEFT JOIN bookings b ON p.property_id = b.property_id
-    LEFT JOIN reviews r ON b.booking_id = r.booking_id
-    WHERE b.booking_status IN ('completed', 'confirmed') OR b.booking_status IS NULL
-    GROUP BY hp.user_id, up.first_name, up.last_name, hp.host_since, hp.response_rate,
-             hp.response_time, hp.superhost_status, hp.verification_level
-),
-host_scores AS (
-    SELECT 
-        *,
-        -- Calculate composite score (0-100)
-        ROUND(
-            (COALESCE(response_rate, 0) * 0.15) +
-            ((100 - COALESCE(response_time, 10)) * 0.10) +
-            (CASE WHEN superhost_status THEN 20 ELSE 0 END) +
-            (CASE WHEN verification_level = 'superhost' THEN 15 ELSE 5 END) +
-            (COALESCE(avg_guest_rating, 0) * 10) +
-            (CASE WHEN total_reviews >= 10 THEN 10 ELSE total_reviews END) +
-            (CASE WHEN total_properties >= 3 THEN 10 ELSE total_properties * 3.33 END)
-        , 2) as performance_score
-    FROM host_metrics
-)
-SELECT 
-    user_id,
-    first_name,
-    last_name,
-    host_since,
-    superhost_status,
-    verification_level,
-    total_properties,
-    total_bookings,
-    total_revenue,
-    avg_booking_value,
-    avg_guest_rating,
-    total_reviews,
-    performance_score,
-    RANK() OVER (ORDER BY performance_score DESC) as host_rank
-FROM host_scores
-WHERE total_bookings > 0
-ORDER BY performance_score DESC;
-
--- Query 7: Property Market Analysis with Competitive Positioning
--- Analyzes property positioning in the market based on price, amenities, and ratings
-WITH property_analysis AS (
-    SELECT 
-        p.property_id,
-        p.title,
-        p.property_type,
-        p.max_guests,
-        p.bedrooms,
-        p.bathrooms,
-        p.square_meters,
-        c.city_name,
-        n.neighborhood_name,
-        n.average_rating as neighborhood_rating,
-        n.safety_score,
-        n.walkability_score,
-        n.transit_score,
-        COUNT(DISTINCT pam.amenity_id) as total_amenities,
-        SUM(CASE WHEN pa.amenity_category = 'luxury' THEN 1 ELSE 0 END) as luxury_amenities,
-        AVG(b.total_price) as avg_price,
-        COUNT(b.booking_id) as total_bookings,
-        AVG(r.rating) as avg_rating,
-        COUNT(r.review_id) as total_reviews
-    FROM properties p
-    JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-    JOIN cities c ON n.city_id = c.city_id
-    LEFT JOIN property_amenity_mapping pam ON p.property_id = pam.property_id
-    LEFT JOIN property_amenities pa ON pam.amenity_id = pa.amenity_id
-    LEFT JOIN bookings b ON p.property_id = b.property_id
-    LEFT JOIN reviews r ON b.booking_id = r.booking_id
-    WHERE pam.is_available = TRUE OR pam.is_available IS NULL
-    GROUP BY p.property_id, p.title, p.property_type, p.max_guests, p.bedrooms, p.bathrooms,
-             p.square_meters, c.city_name, n.neighborhood_name, n.average_rating, n.safety_score,
-             n.walkability_score, n.transit_score
-),
-market_positioning AS (
-    SELECT 
-        *,
-        -- Calculate price per guest
-        ROUND(avg_price / max_guests, 2) as price_per_guest,
-        -- Calculate price per square meter
-        ROUND(avg_price / square_meters, 2) as price_per_sqm,
-        -- Calculate amenity density
-        ROUND((total_amenities / square_meters) * 100, 2) as amenity_density,
-        -- Market positioning score
-        ROUND(
-            (COALESCE(avg_rating, 0) * 20) +
-            (CASE WHEN total_reviews >= 5 THEN 20 ELSE total_reviews * 4 END) +
-            (neighborhood_rating * 15) +
-            (safety_score * 10) +
-            (walkability_score * 10) +
-            (transit_score * 10) +
-            (CASE WHEN luxury_amenities >= 3 THEN 15 ELSE luxury_amenities * 5 END)
-        , 2) as market_score
-    FROM property_analysis
-)
-SELECT 
-    property_id,
-    title,
-    property_type,
-    city_name,
-    neighborhood_name,
-    max_guests,
-    bedrooms,
-    bathrooms,
-    square_meters,
-    avg_price,
-    price_per_guest,
-    price_per_sqm,
-    total_amenities,
-    luxury_amenities,
-    amenity_density,
-    avg_rating,
-    total_reviews,
-    neighborhood_rating,
-    safety_score,
-    walkability_score,
-    transit_score,
-    market_score,
-    RANK() OVER (PARTITION BY city_name ORDER BY market_score DESC) as city_rank,
-    RANK() OVER (PARTITION BY property_type ORDER BY market_score DESC) as type_rank
-FROM market_positioning
-WHERE total_bookings > 0
-ORDER BY market_score DESC;
-
--- =====================================================
--- 4. BUSINESS INTELLIGENCE QUERIES
--- =====================================================
-
--- Query 8: Revenue Forecasting and Trend Analysis
--- Predicts future revenue based on historical patterns and seasonal trends
-WITH monthly_revenue AS (
-    SELECT 
-        DATE_FORMAT(b.check_in_date, '%Y-%m-01') as month,
-        c.city_name,
-        c.country_code,
-        COUNT(b.booking_id) as bookings,
-        SUM(b.total_price) as revenue,
-        AVG(b.total_price) as avg_price,
-        COUNT(DISTINCT b.guest_id) as unique_guests
-    FROM bookings b
-    JOIN properties p ON b.property_id = p.property_id
-    JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-    JOIN cities c ON n.city_id = c.city_id
-    WHERE b.booking_status IN ('completed', 'confirmed')
-        AND b.check_in_date >= '2023-01-01'
-    GROUP BY DATE_FORMAT(b.check_in_date, '%Y-%m-01'), c.city_name, c.country_code
-),
-revenue_trends AS (
-    SELECT 
-        *,
-        LAG(revenue) OVER (PARTITION BY city_name ORDER BY month) as prev_month_revenue,
-        LAG(bookings) OVER (PARTITION BY city_name ORDER BY month) as prev_month_bookings,
-        ROUND(
-            ((revenue - LAG(revenue) OVER (PARTITION BY city_name ORDER BY month)) / 
-             LAG(revenue) OVER (PARTITION BY city_name ORDER BY month)) * 100, 2
-        ) as revenue_growth_percent,
-        ROUND(
-            ((bookings - LAG(bookings) OVER (PARTITION BY city_name ORDER BY month)) / 
-             LAG(bookings) OVER (PARTITION BY city_name ORDER BY month)) * 100, 2
-        ) as booking_growth_percent
-    FROM monthly_revenue
-)
-SELECT 
-    month,
-    city_name,
-    country_code,
-    bookings,
-    revenue,
-    avg_price,
-    unique_guests,
-    prev_month_revenue,
-    prev_month_bookings,
-    revenue_growth_percent,
-    booking_growth_percent,
-    -- Simple trend prediction (next month estimate)
-    ROUND(
-        revenue * (1 + COALESCE(revenue_growth_percent, 0) / 100), 2
-    ) as predicted_next_month_revenue
-FROM revenue_trends
-ORDER BY city_name, month;
-
--- Query 9: Customer Lifetime Value Analysis
--- Calculates customer lifetime value and segments customers by value
-WITH customer_bookings AS (
-    SELECT 
-        b.guest_id,
-        up.first_name,
-        up.last_name,
-        up.guest_since,
-        COUNT(b.booking_id) as total_bookings,
-        SUM(b.total_price) as total_spent,
-        AVG(b.total_price) as avg_booking_value,
+        COUNT(DISTINCT p.property_id) as unique_properties,
+        COUNT(DISTINCT ci.city_id) as cities_visited,
         MIN(b.check_in_date) as first_booking,
         MAX(b.check_in_date) as last_booking,
-        COUNT(DISTINCT p.city_id) as cities_visited,
-        COUNT(DISTINCT p.property_type) as property_types_tried,
-        AVG(r.rating) as avg_rating_given,
-        COUNT(r.review_id) as reviews_left
-    FROM bookings b
-    JOIN user_profiles up ON b.guest_id = up.user_id
+        AVG(CAST(r.overall_rating AS DECIMAL(3,2))) as avg_rating_given
+    FROM guest_profiles gp
+    JOIN user_profiles up ON gp.user_id = up.user_id
+    JOIN bookings b ON gp.user_id = b.guest_id
     JOIN properties p ON b.property_id = p.property_id
     JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-    JOIN cities c ON n.city_id = c.city_id
-    LEFT JOIN reviews r ON b.booking_id = r.booking_id
-    WHERE b.booking_status IN ('completed', 'confirmed')
-    GROUP BY b.guest_id, up.first_name, up.last_name, up.guest_since
-),
-customer_segments AS (
-    SELECT 
-        *,
-        -- Calculate customer lifetime value
-        ROUND(total_spent * (1 + (total_bookings * 0.1)), 2) as clv,
-        -- Calculate days since first booking
-        DATEDIFF(CURRENT_DATE, first_booking) as days_since_first,
-        -- Calculate average days between bookings
-        CASE 
-            WHEN total_bookings > 1 THEN 
-                DATEDIFF(last_booking, first_booking) / (total_bookings - 1)
-            ELSE NULL 
-        END as avg_days_between_bookings,
-        -- Customer segment based on CLV and behavior
-        CASE 
-            WHEN total_spent >= 2000 AND total_bookings >= 5 THEN 'VIP'
-            WHEN total_spent >= 1000 AND total_bookings >= 3 THEN 'Regular'
-            WHEN total_spent >= 500 AND total_bookings >= 2 THEN 'Occasional'
-            ELSE 'New'
-        END as customer_segment
-    FROM customer_bookings
+    JOIN cities ci ON n.city_id = ci.city_id
+    LEFT JOIN reviews r ON b.booking_id = r.booking_id AND r.reviewer_id = gp.user_id
+    WHERE b.status IN ('completed', 'paid')
+    GROUP BY gp.user_id, up.first_name, up.last_name, gp.guest_since, gp.loyalty_tier
 )
 SELECT 
-    guest_id,
-    first_name,
-    last_name,
-    guest_since,
-    total_bookings,
-    total_spent,
-    avg_booking_value,
-    first_booking,
-    last_booking,
-    cities_visited,
-    property_types_tried,
-    avg_rating_given,
-    reviews_left,
-    clv,
-    days_since_first,
-    avg_days_between_bookings,
-    customer_segment,
-    RANK() OVER (ORDER BY clv DESC) as clv_rank,
-    DATE_ADD(CURRENT_DATE, INTERVAL 
-        CASE 
-            WHEN avg_days_between_bookings IS NOT NULL THEN 
-                DATEDIFF(CURRENT_DATE, last_booking) + avg_days_between_bookings
-            ELSE 30
-        END DAY
-    ) as predicted_next_booking
-FROM customer_segments
-ORDER BY clv DESC;
+    *,
+    DATEDIFF(last_booking, first_booking) as customer_lifetime_days,
+    DATEDIFF(CURRENT_DATE, last_booking) as days_since_last_booking,
+    ROUND(lifetime_value / GREATEST(DATEDIFF(last_booking, first_booking), 1), 2) as daily_value,
+    CASE 
+        WHEN lifetime_value > 10000 AND total_bookings > 10 THEN 'VIP'
+        WHEN lifetime_value > 5000 AND total_bookings > 5 THEN 'Premium'
+        WHEN lifetime_value > 2000 AND total_bookings > 2 THEN 'Regular'
+        ELSE 'Occasional'
+    END as customer_segment
+FROM guest_metrics
+ORDER BY lifetime_value DESC;
 
--- Query 10: Operational Efficiency Metrics
--- Analyzes platform operational efficiency and identifies improvement areas
+-- Host performance ranking (using total_earnings from table)
+-- Comprehensive host evaluation across multiple metrics
 SELECT 
-    'Platform Performance Metrics' as metric_category,
-    COUNT(DISTINCT u.user_id) as total_users,
-    COUNT(DISTINCT CASE WHEN u.user_type = 'host' THEN u.user_id END) as total_hosts,
-    COUNT(DISTINCT CASE WHEN u.user_type = 'guest' THEN u.user_id END) as total_guests,
-    COUNT(DISTINCT p.property_id) as total_properties,
+    hp.user_id,
+    up.first_name,
+    up.last_name,
+    hp.host_since,
+    hp.response_rate,
+    hp.response_time_hours,
+    hp.superhost_status,
+    hp.total_earnings,  -- Using the actual column from host_profiles
+    COUNT(DISTINCT p.property_id) as property_count,
     COUNT(DISTINCT b.booking_id) as total_bookings,
-    ROUND(AVG(b.total_price), 2) as avg_booking_value,
-    ROUND(SUM(b.total_price), 2) as total_platform_revenue
-FROM users u
-LEFT JOIN properties p ON u.user_id = p.host_id
-LEFT JOIN bookings b ON p.property_id = b.property_id
-
-UNION ALL
-
-SELECT 
-    'Host Performance Metrics' as metric_category,
-    COUNT(DISTINCT hp.user_id) as total_hosts,
-    ROUND(AVG(hp.response_rate), 2) as avg_response_rate,
-    ROUND(AVG(hp.response_time), 2) as avg_response_time,
-    COUNT(CASE WHEN hp.superhost_status THEN 1 END) as superhost_count,
-    ROUND(
-        (COUNT(CASE WHEN hp.superhost_status THEN 1 END) / COUNT(*)) * 100, 2
-    ) as superhost_percentage,
-    ROUND(AVG(p.max_guests), 2) as avg_property_capacity,
-    ROUND(AVG(p.bedrooms), 2) as avg_bedrooms
+    AVG(b.total_price) as avg_booking_value,
+    AVG(CAST(r.overall_rating AS DECIMAL(3,2))) as avg_rating_received,
+    COUNT(DISTINCT r.review_id) as total_reviews,
+    RANK() OVER (ORDER BY hp.total_earnings DESC) as earnings_rank,
+    RANK() OVER (ORDER BY AVG(CAST(r.overall_rating AS DECIMAL(3,2))) DESC) as rating_rank
 FROM host_profiles hp
+JOIN user_profiles up ON hp.user_id = up.user_id
 LEFT JOIN properties p ON hp.user_id = p.host_id
+LEFT JOIN bookings b ON p.property_id = b.property_id AND b.status = 'completed'
+LEFT JOIN reviews r ON b.booking_id = r.booking_id AND r.reviewee_id = hp.user_id
+GROUP BY hp.user_id, up.first_name, up.last_name, hp.host_since, 
+         hp.response_rate, hp.response_time_hours, hp.superhost_status, hp.total_earnings
+HAVING COUNT(DISTINCT b.booking_id) > 0
+ORDER BY hp.total_earnings DESC;
 
-UNION ALL
-
+-- Seasonal pricing optimization
+-- Analyzes price variations and occupancy by season
 SELECT 
-    'Guest Satisfaction Metrics' as metric_category,
-    COUNT(DISTINCT r.reviewer_id) as total_reviewers,
-    ROUND(AVG(r.rating), 2) as overall_rating,
-    ROUND(AVG(r.cleanliness_rating), 2) as avg_cleanliness,
-    ROUND(AVG(r.communication_rating), 2) as avg_communication,
-    ROUND(AVG(r.location_rating), 2) as avg_location,
-    ROUND(AVG(r.value_rating), 2) as avg_value,
-    COUNT(r.review_id) as total_reviews
-FROM reviews r
+    ci.city_name,
+    p.property_type,
+    QUARTER(pa.date) as quarter,
+    CASE 
+        WHEN MONTH(pa.date) IN (12, 1, 2) THEN 'Winter'
+        WHEN MONTH(pa.date) IN (3, 4, 5) THEN 'Spring'  
+        WHEN MONTH(pa.date) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+    END as season,
+    COUNT(DISTINCT p.property_id) as properties,
+    AVG(pa.price) as avg_seasonal_price,
+    AVG(p.base_price_per_night) as avg_base_price,
+    ROUND((AVG(pa.price) - AVG(p.base_price_per_night)) / AVG(p.base_price_per_night) * 100, 2) as price_premium_pct,
+    COUNT(DISTINCT b.booking_id) as bookings,
+    ROUND(COUNT(DISTINCT b.booking_id) * 100.0 / COUNT(DISTINCT pa.availability_id), 2) as occupancy_rate
+FROM property_availability pa
+JOIN properties p ON pa.property_id = p.property_id
+JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
+JOIN cities ci ON n.city_id = ci.city_id
+LEFT JOIN bookings b ON p.property_id = b.property_id 
+    AND pa.date BETWEEN b.check_in_date AND DATE_SUB(b.check_out_date, INTERVAL 1 DAY)
+    AND b.status != 'cancelled'
+WHERE pa.date BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 1 YEAR) AND CURRENT_DATE
+GROUP BY ci.city_name, p.property_type, QUARTER(pa.date),
+    CASE 
+        WHEN MONTH(pa.date) IN (12, 1, 2) THEN 'Winter'
+        WHEN MONTH(pa.date) IN (3, 4, 5) THEN 'Spring'  
+        WHEN MONTH(pa.date) IN (6, 7, 8) THEN 'Summer'
+        ELSE 'Fall'
+    END
+ORDER BY ci.city_name, quarter;
 
-UNION ALL
-
+-- Search to booking conversion
+-- Tracks user search patterns that lead to bookings
 SELECT 
-    'Financial Performance Metrics' as metric_category,
-    COUNT(DISTINCT py.payment_id) as total_payments,
-    ROUND(SUM(py.amount), 2) as total_payment_volume,
-    ROUND(SUM(py.commission_amount), 2) as total_commission,
-    ROUND(
-        (SUM(py.commission_amount) / SUM(py.amount)) * 100, 2
-    ) as commission_percentage,
-    ROUND(AVG(py.amount), 2) as avg_payment_amount,
-    COUNT(CASE WHEN py.payment_status = 'completed' THEN 1 END) as completed_payments,
-    ROUND(
-        (COUNT(CASE WHEN py.payment_status = 'completed' THEN 1 END) / COUNT(*)) * 100, 2
-    ) as payment_success_rate
-FROM payments py;
+    sh.user_id,
+    up.first_name,
+    up.last_name,
+    sh.location,
+    sh.property_type as searched_type,
+    sh.num_guests as searched_guests,
+    sh.min_price,
+    sh.max_price,
+    COUNT(DISTINCT sh.search_id) as total_searches,
+    COUNT(DISTINCT b.booking_id) as bookings_made,
+    AVG(b.total_price) as avg_booking_price,
+    MIN(DATEDIFF(b.created_at, sh.searched_at)) as min_days_to_book,
+    ROUND(COUNT(DISTINCT b.booking_id) * 100.0 / COUNT(DISTINCT sh.search_id), 2) as conversion_rate
+FROM search_history sh
+JOIN user_profiles up ON sh.user_id = up.user_id
+LEFT JOIN bookings b ON sh.user_id = b.guest_id
+    AND b.created_at > sh.searched_at
+    AND b.created_at < DATE_ADD(sh.searched_at, INTERVAL 30 DAY)
+WHERE sh.searched_at >= DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)
+GROUP BY sh.user_id, up.first_name, up.last_name, sh.location, 
+         sh.property_type, sh.num_guests, sh.min_price, sh.max_price
+HAVING COUNT(DISTINCT sh.search_id) >= 3
+ORDER BY conversion_rate DESC;
 
--- =====================================================
--- 5. DATA QUALITY AND VALIDATION QUERIES
--- =====================================================
-
--- Query 11: Data Integrity Validation
--- Identifies potential data quality issues and inconsistencies
+-- Message response time analysis
+-- Evaluates host communication performance
 SELECT 
-    'Data Quality Issues' as issue_type,
-    'Users without profiles' as description,
-    COUNT(*) as issue_count
+    hp.user_id,
+    up.first_name,
+    up.last_name,
+    hp.response_time_hours as stated_response_time,
+    COUNT(DISTINCT m1.message_id) as messages_received,
+    COUNT(DISTINCT m2.message_id) as messages_replied,
+    ROUND(COUNT(DISTINCT m2.message_id) * 100.0 / COUNT(DISTINCT m1.message_id), 2) as reply_rate,
+    AVG(TIMESTAMPDIFF(HOUR, m1.sent_at, m2.sent_at)) as actual_avg_response_hours,
+    MIN(TIMESTAMPDIFF(HOUR, m1.sent_at, m2.sent_at)) as fastest_response,
+    MAX(TIMESTAMPDIFF(HOUR, m1.sent_at, m2.sent_at)) as slowest_response
+FROM host_profiles hp
+JOIN user_profiles up ON hp.user_id = up.user_id
+JOIN messages m1 ON hp.user_id = m1.receiver_id
+LEFT JOIN messages m2 ON m1.sender_id = m2.receiver_id 
+    AND m1.receiver_id = m2.sender_id
+    AND m2.sent_at > m1.sent_at
+    AND m2.sent_at < DATE_ADD(m1.sent_at, INTERVAL 7 DAY)
+WHERE m1.is_automated = FALSE
+GROUP BY hp.user_id, up.first_name, up.last_name, hp.response_time_hours
+HAVING COUNT(DISTINCT m1.message_id) >= 10
+ORDER BY reply_rate DESC, actual_avg_response_hours ASC;
+
+-- Wishlist conversion analysis
+-- Tracks which saved properties get booked
+SELECT 
+    w.user_id,
+    up.first_name,
+    up.last_name,
+    w.name as wishlist_name,
+    w.privacy,
+    COUNT(DISTINCT wp.property_id) as saved_properties,
+    COUNT(DISTINCT b.property_id) as booked_properties,
+    ROUND(COUNT(DISTINCT b.property_id) * 100.0 / COUNT(DISTINCT wp.property_id), 2) as conversion_rate,
+    AVG(DATEDIFF(b.created_at, wp.added_at)) as avg_days_to_book,
+    SUM(b.total_price) as revenue_from_wishlist
+FROM wishlists w
+JOIN user_profiles up ON w.user_id = up.user_id
+JOIN wishlist_properties wp ON w.wishlist_id = wp.wishlist_id
+LEFT JOIN bookings b ON wp.property_id = b.property_id 
+    AND b.guest_id = w.user_id
+    AND b.created_at > wp.added_at
+WHERE w.created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 1 YEAR)
+GROUP BY w.user_id, up.first_name, up.last_name, w.wishlist_id, w.name, w.privacy
+HAVING COUNT(DISTINCT wp.property_id) >= 3
+ORDER BY conversion_rate DESC;
+
+-- User verification impact (fixed JOIN logic)
+-- Shows how verification affects user behavior
+SELECT 
+    u.user_type,
+    uv.verification_type,
+    uv.is_verified,
+    COUNT(DISTINCT u.user_id) as user_count,
+    COUNT(DISTINCT CASE WHEN u.user_id = b.guest_id THEN b.booking_id END) as guest_bookings,
+    COUNT(DISTINCT CASE WHEN u.user_id = p.host_id THEN b.booking_id END) as host_bookings,
+    AVG(b.total_price) as avg_booking_value,
+    AVG(CAST(r.overall_rating AS DECIMAL(3,2))) as avg_rating,
+    COUNT(DISTINCT p.property_id) as properties_managed
 FROM users u
-LEFT JOIN user_profiles up ON u.user_id = up.user_id
-WHERE up.user_id IS NULL
+JOIN user_verifications uv ON u.user_id = uv.user_id
+LEFT JOIN bookings b ON u.user_id = b.guest_id
+LEFT JOIN properties p ON u.user_id = p.host_id
+LEFT JOIN bookings b2 ON p.property_id = b2.property_id
+LEFT JOIN reviews r ON b.booking_id = r.booking_id OR b2.booking_id = r.booking_id
+WHERE uv.is_verified = TRUE
+GROUP BY u.user_type, uv.verification_type, uv.is_verified
+ORDER BY u.user_type, (guest_bookings + host_bookings) DESC;
 
-UNION ALL
+-- ===========================================
+-- TEST QUERIES FOR EACH TABLE (Assignment requirement)
+-- ===========================================
 
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Properties without neighborhoods' as description,
-    COUNT(*) as issue_count
-FROM properties p
-LEFT JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-WHERE n.neighborhood_id IS NULL
+-- Test all 26 tables with basic queries
+SELECT 'users' as table_name, COUNT(*) as row_count FROM users
+UNION ALL SELECT 'user_profiles', COUNT(*) FROM user_profiles
+UNION ALL SELECT 'host_profiles', COUNT(*) FROM host_profiles
+UNION ALL SELECT 'guest_profiles', COUNT(*) FROM guest_profiles
+UNION ALL SELECT 'countries', COUNT(*) FROM countries
+UNION ALL SELECT 'cities', COUNT(*) FROM cities
+UNION ALL SELECT 'neighborhoods', COUNT(*) FROM neighborhoods
+UNION ALL SELECT 'properties', COUNT(*) FROM properties
+UNION ALL SELECT 'property_addresses', COUNT(*) FROM property_addresses
+UNION ALL SELECT 'amenities', COUNT(*) FROM amenities
+UNION ALL SELECT 'property_amenities_map', COUNT(*) FROM property_amenities_map
+UNION ALL SELECT 'property_photos', COUNT(*) FROM property_photos
+UNION ALL SELECT 'property_availability', COUNT(*) FROM property_availability
+UNION ALL SELECT 'property_rules', COUNT(*) FROM property_rules
+UNION ALL SELECT 'bookings', COUNT(*) FROM bookings
+UNION ALL SELECT 'payments', COUNT(*) FROM payments
+UNION ALL SELECT 'host_payouts', COUNT(*) FROM host_payouts
+UNION ALL SELECT 'reviews', COUNT(*) FROM reviews
+UNION ALL SELECT 'messages', COUNT(*) FROM messages
+UNION ALL SELECT 'wishlists', COUNT(*) FROM wishlists
+UNION ALL SELECT 'wishlist_properties', COUNT(*) FROM wishlist_properties
+UNION ALL SELECT 'social_connections', COUNT(*) FROM social_connections
+UNION ALL SELECT 'user_verifications', COUNT(*) FROM user_verifications
+UNION ALL SELECT 'search_history', COUNT(*) FROM search_history
+UNION ALL SELECT 'promo_codes', COUNT(*) FROM promo_codes
+UNION ALL SELECT 'user_property_amenity_preferences', COUNT(*) FROM user_property_amenity_preferences
+UNION ALL SELECT 'booking_review_responses', COUNT(*) FROM booking_review_responses
+UNION ALL SELECT 'property_booking_discounts', COUNT(*) FROM property_booking_discounts
+UNION ALL SELECT 'user_referrals', COUNT(*) FROM user_referrals;
 
-UNION ALL
-
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Bookings without payments' as description,
-    COUNT(*) as issue_count
-FROM bookings b
-LEFT JOIN payments py ON b.booking_id = py.booking_id
-WHERE py.booking_id IS NULL AND b.booking_status IN ('confirmed', 'completed')
-
-UNION ALL
-
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Reviews without bookings' as description,
-    COUNT(*) as issue_count
-FROM reviews r
-LEFT JOIN bookings b ON r.booking_id = b.booking_id
-WHERE b.booking_id IS NULL
-
-UNION ALL
-
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Invalid booking dates' as description,
-    COUNT(*) as issue_count
-FROM bookings b
-WHERE b.check_in_date >= b.check_out_date
-
-UNION ALL
-
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Negative prices' as description,
-    COUNT(*) as issue_count
-FROM bookings b
-WHERE b.total_price < 0
-
-UNION ALL
-
-SELECT 
-    'Data Quality Issues' as issue_type,
-    'Invalid ratings' as description,
-    COUNT(*) as issue_count
-FROM reviews r
-WHERE r.rating < 1 OR r.rating > 5;
-
--- Query 12: Referential Integrity Check
--- Verifies that all foreign key relationships are properly maintained
-SELECT 
-    'Referential Integrity Check' as check_type,
-    'Orphaned user profiles' as description,
-    COUNT(*) as orphan_count
+-- Data integrity check
+SELECT 'Orphaned profiles' as issue, COUNT(*) as count
 FROM user_profiles up
 LEFT JOIN users u ON up.user_id = u.user_id
 WHERE u.user_id IS NULL
-
 UNION ALL
-
-SELECT 
-    'Referential Integrity Check' as check_type,
-    'Orphaned properties' as description,
-    COUNT(*) as orphan_count
+SELECT 'Properties without addresses', COUNT(*)
 FROM properties p
-LEFT JOIN users u ON p.host_id = u.user_id
-WHERE u.user_id IS NULL
-
+LEFT JOIN property_addresses pa ON p.property_id = pa.property_id
+WHERE pa.property_id IS NULL
 UNION ALL
-
-SELECT 
-    'Referential Integrity Check' as check_type,
-    'Orphaned bookings' as description,
-    COUNT(*) as orphan_count
+SELECT 'Bookings without payments', COUNT(*)
 FROM bookings b
-LEFT JOIN properties p ON b.property_id = p.property_id
-WHERE p.property_id IS NULL
-
+LEFT JOIN payments p ON b.booking_id = p.booking_id
+WHERE b.status = 'paid' AND p.payment_id IS NULL
 UNION ALL
+SELECT 'Invalid date ranges', COUNT(*)
+FROM bookings
+WHERE check_in_date >= check_out_date;
 
+-- Platform KPIs summary
 SELECT 
-    'Referential Integrity Check' as check_type,
-    'Orphaned payments' as description,
-    COUNT(*) as orphan_count
-FROM payments py
-LEFT JOIN bookings b ON py.booking_id = b.booking_id
-WHERE b.booking_id IS NULL
-
-UNION ALL
-
-SELECT 
-    'Referential Integrity Check' as check_type,
-    'Orphaned reviews' as description,
-    COUNT(*) as orphan_count
-FROM reviews r
-LEFT JOIN bookings b ON r.booking_id = b.booking_id
-WHERE b.booking_id IS NULL;
-
--- =====================================================
--- 6. PERFORMANCE OPTIMIZATION QUERIES
--- =====================================================
-
--- Query 13: Index Usage Analysis
--- Identifies tables that would benefit from additional indexing
--- Note: This query works in MySQL. For PostgreSQL, use pg_stats table
-SELECT 
-    TABLE_SCHEMA as schemaname,
-    TABLE_NAME as tablename,
-    COLUMN_NAME as attname,
-    CARDINALITY as n_distinct,
-    NULL as correlation,
-    NULL as most_common_vals,
-    NULL as most_common_freqs
-FROM information_schema.STATISTICS
-WHERE TABLE_SCHEMA = 'airbnb_data_mart'
-    AND TABLE_NAME IN ('users', 'properties', 'bookings', 'reviews', 'payments')
-ORDER BY TABLE_NAME, CARDINALITY DESC;
-
--- Query 14: Query Performance Analysis
--- Analyzes query execution plans and identifies optimization opportunities
--- Note: Use EXPLAIN ANALYZE in PostgreSQL, EXPLAIN in MySQL
-EXPLAIN
-SELECT 
-    p.title,
-    p.property_type,
-    c.city_name,
-    n.neighborhood_name,
-    AVG(b.total_price) as avg_price,
-    COUNT(b.booking_id) as total_bookings,
-    AVG(r.rating) as avg_rating
-FROM properties p
-JOIN neighborhoods n ON p.neighborhood_id = n.neighborhood_id
-JOIN cities c ON n.city_id = c.city_id
-LEFT JOIN bookings b ON p.property_id = b.property_id
-LEFT JOIN reviews r ON b.booking_id = r.booking_id
-WHERE c.country_code = 'USA'
-    AND b.check_in_date >= '2024-01-01'
-GROUP BY p.property_id, p.title, p.property_type, c.city_name, n.neighborhood_name
-HAVING COUNT(b.booking_id) >= 1
-ORDER BY avg_rating DESC, total_bookings DESC;
+    (SELECT COUNT(*) FROM users WHERE user_type IN ('host', 'both')) as total_hosts,
+    (SELECT COUNT(*) FROM users WHERE user_type IN ('guest', 'both')) as total_guests,
+    (SELECT COUNT(*) FROM properties WHERE status = 'active') as active_properties,
+    (SELECT COUNT(*) FROM bookings WHERE status = 'completed') as completed_bookings,
+    (SELECT SUM(total_price) FROM bookings WHERE status = 'completed') as gross_revenue,
+    (SELECT SUM(airbnb_service_fee + host_service_fee) FROM bookings WHERE status = 'completed') as platform_revenue,
+    (SELECT AVG(CAST(overall_rating AS DECIMAL(3,2))) FROM reviews) as avg_platform_rating,
+    (SELECT COUNT(*) FROM host_profiles WHERE superhost_status = TRUE) as superhost_count;

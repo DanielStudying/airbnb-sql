@@ -1,28 +1,25 @@
--- Airbnb Database Schema
--- Course: Build a Data Mart in SQL (DLBDSPBDM01)
--- 26 tables with 3 triple relationships
-
+-- Create the main database for all Airbnb data
 CREATE DATABASE IF NOT EXISTS airbnb_data_mart;
 USE airbnb_data_mart;
 
--- core user system
+-- User accounts: login, role, status
 CREATE TABLE users (
-    user_id INT AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    user_type ENUM('host', 'guest', 'both', 'admin') NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP NULL,
-    is_verified BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
+    user_id INT AUTO_INCREMENT PRIMARY KEY,         -- Internal user ID
+    email VARCHAR(255) NOT NULL UNIQUE,             -- Used for login
+    password_hash VARCHAR(255) NOT NULL,            -- Store only hashes
+    user_type ENUM('host', 'guest', 'both', 'admin') NOT NULL, -- Permissions
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Signup time
+    last_login TIMESTAMP NULL,                      -- Last seen
+    is_verified BOOLEAN DEFAULT FALSE,              -- Email/ID verified
+    is_active BOOLEAN DEFAULT TRUE,                 -- Account enabled
     INDEX idx_email (email),
     INDEX idx_user_type (user_type)
 );
 
--- user profile details
+-- Extra user details, separated for flexibility
 CREATE TABLE user_profiles (
     profile_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    user_id INT NOT NULL,                           -- Link to users
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     phone_number VARCHAR(20),
@@ -30,28 +27,28 @@ CREATE TABLE user_profiles (
     profile_picture VARCHAR(500),
     bio TEXT,
     preferred_language VARCHAR(10) DEFAULT 'en',
-    government_id VARCHAR(100), -- encrypted
+    government_id VARCHAR(100),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id)
 );
 
--- host specific data
+-- Host-specific info and metrics
 CREATE TABLE host_profiles (
     host_profile_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    host_since DATE NOT NULL,
-    response_rate DECIMAL(5,2) DEFAULT 0.00,
-    response_time_hours INT DEFAULT 24,
-    superhost_status BOOLEAN DEFAULT FALSE,
-    bank_account VARCHAR(500), -- encrypted
-    tax_id VARCHAR(50),
-    total_earnings DECIMAL(12,2) DEFAULT 0.00,
+    user_id INT NOT NULL,                           -- Link to users
+    host_since DATE NOT NULL,                       -- When hosting started
+    response_rate DECIMAL(5,2) DEFAULT 0.00,        -- % of messages answered
+    response_time_hours INT DEFAULT 24,             -- Avg response time
+    superhost_status BOOLEAN DEFAULT FALSE,         -- Superhost badge
+    bank_account VARCHAR(500),                      -- For payouts
+    tax_id VARCHAR(50),                             -- For compliance
+    total_earnings DECIMAL(12,2) DEFAULT 0.00,      -- Money earned
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_superhost (superhost_status)
 );
 
--- guest specific data  
+-- Guest-specific info and stats
 CREATE TABLE guest_profiles (
     guest_profile_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -60,12 +57,12 @@ CREATE TABLE guest_profiles (
     emergency_contact VARCHAR(500),
     work_travel BOOLEAN DEFAULT FALSE,
     total_spent DECIMAL(12,2) DEFAULT 0.00,
-    loyalty_tier INT DEFAULT 1, -- 1-5 tiers
+    loyalty_tier INT DEFAULT 1,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id)
 );
 
--- location hierarchy
+-- Country reference data
 CREATE TABLE countries (
     country_id INT AUTO_INCREMENT PRIMARY KEY,
     country_name VARCHAR(100) NOT NULL UNIQUE,
@@ -74,6 +71,7 @@ CREATE TABLE countries (
     INDEX idx_country_code (country_code)
 );
 
+-- City reference data
 CREATE TABLE cities (
     city_id INT AUTO_INCREMENT PRIMARY KEY,
     country_id INT NOT NULL,
@@ -87,6 +85,7 @@ CREATE TABLE cities (
     INDEX idx_city_name (city_name)
 );
 
+-- Neighborhoods within cities
 CREATE TABLE neighborhoods (
     neighborhood_id INT AUTO_INCREMENT PRIMARY KEY,
     city_id INT NOT NULL,
@@ -98,10 +97,10 @@ CREATE TABLE neighborhoods (
     INDEX idx_city_id (city_id)
 );
 
--- property listings
+-- Properties listed by hosts
 CREATE TABLE properties (
     property_id INT AUTO_INCREMENT PRIMARY KEY,
-    host_id INT NOT NULL,
+    host_id INT NOT NULL,                           -- Owner/host
     neighborhood_id INT NOT NULL,
     property_type ENUM('apartment', 'house', 'villa', 'condo', 'cabin', 'room', 'shared_room') NOT NULL,
     title VARCHAR(200) NOT NULL,
@@ -109,7 +108,7 @@ CREATE TABLE properties (
     max_guests INT NOT NULL,
     bedrooms INT NOT NULL,
     beds INT NOT NULL,
-    bathrooms DECIMAL(3,1) NOT NULL, -- supports 1.5 bathrooms
+    bathrooms DECIMAL(3,1) NOT NULL,
     square_feet INT,
     instant_bookable BOOLEAN DEFAULT FALSE,
     base_price_per_night DECIMAL(10,2) NOT NULL,
@@ -124,7 +123,7 @@ CREATE TABLE properties (
     INDEX idx_status (status)
 );
 
--- property address details
+-- Property addresses, separated for normalization
 CREATE TABLE property_addresses (
     address_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
@@ -137,7 +136,7 @@ CREATE TABLE property_addresses (
     UNIQUE KEY unique_property (property_id)
 );
 
--- amenity definitions
+-- Amenity reference data
 CREATE TABLE amenities (
     amenity_id INT AUTO_INCREMENT PRIMARY KEY,
     amenity_name VARCHAR(100) NOT NULL UNIQUE,
@@ -146,25 +145,25 @@ CREATE TABLE amenities (
     INDEX idx_category (category)
 );
 
--- property amenity mapping
+-- Mapping amenities to properties
 CREATE TABLE property_amenities_map (
     map_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     amenity_id INT NOT NULL,
-    details VARCHAR(255), -- "2 TVs", "King size bed", etc
+    details VARCHAR(255),
     FOREIGN KEY (property_id) REFERENCES properties(property_id) ON DELETE CASCADE,
     FOREIGN KEY (amenity_id) REFERENCES amenities(amenity_id) ON DELETE CASCADE,
     UNIQUE KEY unique_prop_amenity (property_id, amenity_id)
 );
 
--- property photos
+-- Photos for each property
 CREATE TABLE property_photos (
     photo_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     photo_url VARCHAR(500) NOT NULL,
     photo_order INT DEFAULT 0,
     caption VARCHAR(255),
-    room_type VARCHAR(50), -- bedroom, bathroom, kitchen, etc
+    room_type VARCHAR(50),
     is_cover_photo BOOLEAN DEFAULT FALSE,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (property_id) REFERENCES properties(property_id) ON DELETE CASCADE,
@@ -172,13 +171,13 @@ CREATE TABLE property_photos (
     INDEX idx_photo_order (photo_order)
 );
 
--- availability calendar
+-- Daily availability and pricing for properties
 CREATE TABLE property_availability (
     availability_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
     date DATE NOT NULL,
     is_available BOOLEAN DEFAULT TRUE,
-    price DECIMAL(10,2), -- can override base price
+    price DECIMAL(10,2),
     min_nights INT DEFAULT 1,
     FOREIGN KEY (property_id) REFERENCES properties(property_id) ON DELETE CASCADE,
     UNIQUE KEY unique_property_date (property_id, date),
@@ -186,7 +185,7 @@ CREATE TABLE property_availability (
     INDEX idx_available (is_available)
 );
 
--- house rules
+-- Rules for each property (check-in, house, etc.)
 CREATE TABLE property_rules (
     rule_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
@@ -196,7 +195,7 @@ CREATE TABLE property_rules (
     INDEX idx_property_id (property_id)
 );
 
--- booking/reservation system
+-- Bookings: who, when, how much, status
 CREATE TABLE bookings (
     booking_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
@@ -205,8 +204,8 @@ CREATE TABLE bookings (
     check_out_date DATE NOT NULL,
     num_guests INT NOT NULL,
     total_price DECIMAL(10,2) NOT NULL,
-    airbnb_service_fee DECIMAL(10,2) NOT NULL, -- guest pays 6-12%
-    host_service_fee DECIMAL(10,2) NOT NULL, -- host pays 3%
+    airbnb_service_fee DECIMAL(10,2) NOT NULL,
+    host_service_fee DECIMAL(10,2) NOT NULL,
     status ENUM('inquiry', 'pending', 'confirmed', 'paid', 'completed', 'cancelled') DEFAULT 'pending',
     cancellation_reason TEXT,
     special_requests TEXT,
@@ -220,11 +219,11 @@ CREATE TABLE bookings (
     INDEX idx_status (status)
 );
 
--- payment transactions
+-- Payments for bookings
 CREATE TABLE payments (
     payment_id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT NOT NULL,
-    payer_id INT NOT NULL, -- who paid
+    payer_id INT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     currency VARCHAR(3) DEFAULT 'USD',
     payment_method ENUM('credit_card', 'debit_card', 'paypal', 'bank_transfer') NOT NULL,
@@ -237,15 +236,15 @@ CREATE TABLE payments (
     INDEX idx_status (status)
 );
 
--- host payouts (24 hours after guest arrival)
+-- Host payouts for completed bookings
 CREATE TABLE host_payouts (
     payout_id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT NOT NULL,
     host_id INT NOT NULL,
-    amount DECIMAL(10,2) NOT NULL, -- after airbnb commission
+    amount DECIMAL(10,2) NOT NULL,
     payout_method ENUM('bank_transfer', 'paypal', 'payoneer') NOT NULL,
     status ENUM('scheduled', 'processing', 'completed', 'failed') DEFAULT 'scheduled',
-    scheduled_date DATE NOT NULL, -- check_in_date + 1 day
+    scheduled_date DATE NOT NULL,
     completed_at TIMESTAMP NULL,
     FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
     FOREIGN KEY (host_id) REFERENCES users(user_id),
@@ -254,7 +253,7 @@ CREATE TABLE host_payouts (
     INDEX idx_status (status)
 );
 
--- review system
+-- Reviews for bookings (guests and hosts)
 CREATE TABLE reviews (
     review_id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT NOT NULL,
@@ -268,7 +267,7 @@ CREATE TABLE reviews (
     checkin_rating INT CHECK (checkin_rating BETWEEN 1 AND 5),
     value_rating INT CHECK (value_rating BETWEEN 1 AND 5),
     public_review TEXT,
-    private_feedback TEXT, -- only visible to reviewee
+    private_feedback TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
     FOREIGN KEY (reviewer_id) REFERENCES users(user_id),
@@ -279,13 +278,13 @@ CREATE TABLE reviews (
     INDEX idx_overall_rating (overall_rating)
 );
 
--- messaging system
+-- Messaging between users (guests, hosts, support)
 CREATE TABLE messages (
     message_id INT AUTO_INCREMENT PRIMARY KEY,
     sender_id INT NOT NULL,
     receiver_id INT NOT NULL,
-    booking_id INT, -- optional, links to booking context
-    property_id INT, -- optional, for inquiries
+    booking_id INT,
+    property_id INT,
     message_text TEXT NOT NULL,
     is_automated BOOLEAN DEFAULT FALSE,
     read_at TIMESTAMP NULL,
@@ -298,7 +297,7 @@ CREATE TABLE messages (
     INDEX idx_sent_at (sent_at)
 );
 
--- saved listings / wishlists
+-- Wishlists for saving favorite properties
 CREATE TABLE wishlists (
     wishlist_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -309,6 +308,7 @@ CREATE TABLE wishlists (
     INDEX idx_user_id (user_id)
 );
 
+-- Properties saved in wishlists
 CREATE TABLE wishlist_properties (
     wishlist_property_id INT AUTO_INCREMENT PRIMARY KEY,
     wishlist_id INT NOT NULL,
@@ -320,20 +320,20 @@ CREATE TABLE wishlist_properties (
     UNIQUE KEY unique_wishlist_property (wishlist_id, property_id)
 );
 
--- social media connections (facebook integration)
+-- Social login connections (Facebook, Google, etc.)
 CREATE TABLE social_connections (
     connection_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     platform ENUM('facebook', 'google', 'linkedin') NOT NULL,
     platform_user_id VARCHAR(100) NOT NULL,
-    access_token VARCHAR(500), -- encrypted
+    access_token VARCHAR(500),
     connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     UNIQUE KEY unique_user_platform (user_id, platform),
     INDEX idx_user_id (user_id)
 );
 
--- user verifications
+-- Verification records for users (email, phone, ID)
 CREATE TABLE user_verifications (
     verification_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -346,7 +346,7 @@ CREATE TABLE user_verifications (
     INDEX idx_type_verified (verification_type, is_verified)
 );
 
--- search history for analytics
+-- Search history for analytics and UX
 CREATE TABLE search_history (
     search_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT,
@@ -364,7 +364,7 @@ CREATE TABLE search_history (
     INDEX idx_searched_at (searched_at)
 );
 
--- coupon/promo codes
+-- Promo codes for discounts
 CREATE TABLE promo_codes (
     promo_id INT AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
@@ -379,8 +379,7 @@ CREATE TABLE promo_codes (
     INDEX idx_valid_dates (valid_from, valid_until)
 );
 
--- Triple relationship 1: User-Property-Amenity preferences
--- tracks amenity importance for users on specific properties
+-- User preferences for amenities in properties
 CREATE TABLE user_property_amenity_preferences (
     preference_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -395,13 +394,12 @@ CREATE TABLE user_property_amenity_preferences (
     INDEX idx_user_property (user_id, property_id)
 );
 
--- Triple relationship 2: Booking-Review-Response
--- allows hosts to respond to reviews on bookings
+-- Host/guest responses to reviews
 CREATE TABLE booking_review_responses (
     response_id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT NOT NULL,
     review_id INT NOT NULL,
-    responder_id INT NOT NULL, -- usually the host
+    responder_id INT NOT NULL,
     response_text TEXT NOT NULL,
     is_public BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -412,8 +410,7 @@ CREATE TABLE booking_review_responses (
     INDEX idx_review_id (review_id)
 );
 
--- Triple relationship 3: Property-Booking-Discount
--- tracks which discounts were applied to bookings
+-- Discounts applied to bookings
 CREATE TABLE property_booking_discounts (
     pbd_id INT AUTO_INCREMENT PRIMARY KEY,
     property_id INT NOT NULL,
@@ -428,7 +425,7 @@ CREATE TABLE property_booking_discounts (
     INDEX idx_booking_id (booking_id)
 );
 
--- recursive relationship: user referrals
+-- Referral program tracking
 CREATE TABLE user_referrals (
     referral_id INT AUTO_INCREMENT PRIMARY KEY,
     referrer_user_id INT NOT NULL,
