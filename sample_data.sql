@@ -116,34 +116,51 @@ INSERT INTO user_profiles (user_id, first_name, last_name, phone_number, date_of
 (21, 'Admin', 'User', '+1-555-0000', '1980-01-01', 'Administrator', 'en');
 
 -- 6. Host profiles (depends on users)
-INSERT INTO host_profiles (user_id, host_since, response_rate, response_time_hours, superhost_status, total_earnings) VALUES
+NSERT INTO host_profiles (user_id, host_since, response_rate, response_time_hours, superhost_status, total_earnings) VALUES
 (1, '2020-01-15', 98.50, 2, TRUE, 45000.00),
 (2, '2019-06-20', 99.20, 1, TRUE, 52000.00),
+(3, '2022-08-20', 94.50, 5, FALSE, 12000.00),
+(4, '2022-09-10', 96.80, 4, FALSE, 14500.00),
 (5, '2021-03-10', 95.80, 4, FALSE, 23000.00),
+(6, '2023-01-25', 92.30, 6, FALSE, 5200.00),
 (7, '2018-11-05', 97.30, 3, TRUE, 61000.00),
+(8, '2022-11-12', 95.70, 4, FALSE, 16800.00),
 (9, '2020-09-12', 96.70, 5, FALSE, 28000.00),
+(10, '2023-02-18', 93.80, 5, FALSE, 7300.00),
 (11, '2019-02-28', 99.80, 1, TRUE, 67000.00),
+(12, '2022-07-05', 97.60, 3, TRUE, 29000.00),
 (13, '2021-01-08', 94.20, 6, FALSE, 19000.00),
+(14, '2023-03-30', 91.50, 7, FALSE, 4100.00),
 (15, '2020-07-14', 98.90, 2, TRUE, 38000.00),
+(16, '2023-04-15', 94.20, 6, FALSE, 6800.00),
 (17, '2021-05-22', 93.50, 7, FALSE, 15000.00),
-(19, '2020-12-03', 97.10, 4, FALSE, 31000.00);
+(18, '2022-10-08', 96.40, 4, FALSE, 18200.00),
+(19, '2020-12-03', 97.10, 4, FALSE, 31000.00),
+(21, '2022-06-15', 98.00, 3, FALSE, 8500.00);
 
 -- 7. Guest profiles (depends on users)
 INSERT INTO guest_profiles (user_id, guest_since, preferred_payment_method, loyalty_tier, total_spent) VALUES
+(1, '2020-02-20', 'credit_card', 3, 5200.00),
+(2, '2019-07-15', 'credit_card', 3, 6100.00),
 (3, '2021-02-10', 'credit_card', 2, 3250.00),
 (4, '2020-08-15', 'paypal', 2, 2890.00),
 (5, '2021-03-15', 'credit_card', 2, 2100.00),
 (6, '2022-01-20', 'credit_card', 1, 850.00),
+(7, '2018-12-10', 'credit_card', 3, 8500.00),
 (8, '2021-06-12', 'credit_card', 2, 2100.00),
 (9, '2020-09-20', 'paypal', 1, 1200.00),
 (10, '2021-09-05', 'paypal', 1, 1750.00),
+(11, '2019-03-25', 'credit_card', 3, 7800.00),
 (12, '2020-12-18', 'credit_card', 3, 4650.00),
+(13, '2021-02-18', 'paypal', 2, 3200.00),
 (14, '2022-03-25', 'credit_card', 1, 620.00),
 (15, '2020-07-20', 'credit_card', 2, 1800.00),
 (16, '2022-01-08', 'credit_card', 1, 380.00),
+(17, '2021-06-22', 'credit_card', 2, 2950.00),
 (18, '2021-04-30', 'paypal', 2, 2920.00),
 (19, '2020-12-10', 'credit_card', 2, 2200.00),
 (20, '2021-11-14', 'credit_card', 1, 1680.00);
+
 
 -- 8. Properties (depends on users + neighborhoods)
 INSERT INTO properties (host_id, neighborhood_id, property_type, title, description, max_guests, bedrooms, beds, bathrooms, square_feet, base_price_per_night, cleaning_fee, instant_bookable, status) VALUES
@@ -418,43 +435,69 @@ INSERT INTO messages (sender_id, receiver_id, booking_id, message_text, is_autom
 
 -- 19. Wishlists (depends on users)
 INSERT INTO wishlists (user_id, name, privacy) VALUES
+(1, 'Business Travel Favorites', 'private'),
+(2, 'Design Inspiration Stays', 'public'),
 (3, 'Beach Getaways', 'private'),
 (4, 'Photography Spots', 'public'),
-(6, 'Budget Travel', 'private'),
-(8, 'Family Vacations', 'private'),
-(10, 'Cultural Stays', 'public'),
-(12, 'Business Travel', 'private'),
-(14, 'Eco-Friendly', 'public'),
-(16, 'Art Neighborhoods', 'private'),
-(18, 'Food Scenes', 'public'),
-(20, 'Film Locations', 'private'),
 (5, 'Chef Travel', 'public'),
+(6, 'Budget Travel', 'private'),
+(7, 'Luxury Properties Research', 'private'),
+(8, 'Family Vacations', 'private'),
 (9, 'Music Cities', 'public'),
+(10, 'Cultural Stays', 'public'),
+(11, 'Architectural Gems', 'public'),
+(12, 'Business Travel', 'private'),
+(13, 'Community-Focused Homes', 'private'),
+(14, 'Eco-Friendly', 'public'),
 (15, 'Wine Country', 'private'),
-(19, 'Urban Planning', 'public');
+(16, 'Art Neighborhoods', 'private'),
+(17, 'Adventure Destinations', 'public'),
+(18, 'Food Scenes', 'public'),
+(19, 'Urban Planning', 'public'),
+(20, 'Film Locations', 'private');
 
 -- 20. Wishlist properties (depends on wishlists + properties)
 INSERT INTO wishlist_properties (wishlist_id, property_id, notes) VALUES
-(1, 2, 'Perfect beach house'),
-(1, 9, 'Miami condo looks amazing'),
-(2, 1, 'Great natural light'),
-(2, 6, 'Bay views for shots'),
-(3, 5, 'Affordable Berlin option'),
-(3, 7, 'Budget LA studio'),
-(4, 8, 'Spacious for kids'),
-(4, 4, 'London family trip'),
-(5, 10, 'Central for cultural sites'),
-(5, 4, 'Historical attractions'),
-(6, 1, 'Business meetings'),
-(6, 3, 'Corporate travel'),
-(7, 17, 'Eco-friendly features'),
-(7, 8, 'Sustainable practices'),
-(8, 16, 'Art gallery visits'),
-(8, 5, 'Artistic neighborhood'),
-(9, 2, 'Food scene exploration'),
-(9, 9, 'Culinary diversity'),
-(10, 6, 'Architecture documentation'),
-(10, 10, 'Urban history');
+(1, 3, 'Perfect for client meetings'),
+(1, 18, 'Great high-rise views'),
+(2, 1, 'Manhattan loft design'),
+(2, 11, 'Brownstone architecture'),
+(3, 2, 'Perfect beach house'),
+(3, 9, 'Miami condo looks amazing'),
+(4, 1, 'Great natural light'),
+(4, 6, 'Bay views for shots'),
+(5, 2, 'Food scene exploration'),
+(5, 9, 'Culinary diversity'),
+(6, 5, 'Affordable Berlin option'),
+(6, 7, 'Budget LA studio'),
+(7, 4, 'Premium townhouse standard'),
+(7, 12, 'Beach house luxury'),
+(8, 8, 'Spacious for kids'),
+(8, 4, 'London family trip'),
+(9, 6, 'Architecture documentation'),
+(9, 10, 'Urban history'),
+(10, 10, 'Central for cultural sites'),
+(10, 4, 'Historical attractions'),
+(11, 6, 'Modern villa architecture'),
+(11, 10, 'Historic Berlin design'),
+(12, 1, 'Business meetings'),
+(12, 3, 'Corporate travel'),
+(13, 8, 'Family neighborhood'),
+(13, 13, 'Community-oriented area'),
+(14, 17, 'Eco-friendly features'),
+(14, 8, 'Sustainable practices'),
+(15, 16, 'Art gallery visits'),
+(15, 5, 'Artistic neighborhood'),
+(16, 16, 'Art gallery visits'),
+(16, 5, 'Artistic neighborhood'),
+(17, 2, 'Beach adventure base'),
+(17, 17, 'Hills exploration hub'),
+(18, 2, 'Food scene exploration'),
+(18, 9, 'Culinary diversity'),
+(19, 6, 'Architecture documentation'),
+(19, 10, 'Urban history'),
+(20, 6, 'Architecture documentation'),
+(20, 10, 'Urban history');
 
 -- 21. Social connections (depends on users)
 INSERT INTO social_connections (user_id, platform, platform_user_id, connected_at) VALUES
