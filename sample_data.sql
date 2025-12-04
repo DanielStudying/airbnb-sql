@@ -116,7 +116,7 @@ INSERT INTO user_profiles (user_id, first_name, last_name, phone_number, date_of
 (21, 'Admin', 'User', '+1-555-0000', '1980-01-01', 'Administrator', 'en');
 
 -- 6. Host profiles (depends on users)
-NSERT INTO host_profiles (user_id, host_since, response_rate, response_time_hours, superhost_status, total_earnings) VALUES
+INSERT INTO host_profiles (user_id, host_since, response_rate, response_time_hours, superhost_status, total_earnings) VALUES
 (1, '2020-01-15', 98.50, 2, TRUE, 45000.00),
 (2, '2019-06-20', 99.20, 1, TRUE, 52000.00),
 (3, '2022-08-20', 94.50, 5, FALSE, 12000.00),
