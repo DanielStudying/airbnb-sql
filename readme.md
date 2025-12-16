@@ -63,9 +63,6 @@ This project implements a fully functional SQL database system designed for an A
 3. **Run Analytical Queries**:
    - Use `complex_queries.sql` to execute advanced queries for insights and analysis.
 
-4. **Review Documentation**:
-   - Refer to `development_summary.md` for detailed explanations of the schema, queries, and features.
-
 ## Technical Highlights
 - **Advanced SQL Features**:
   - Common Table Expressions (CTEs)
